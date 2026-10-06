@@ -1,7 +1,8 @@
 # Fetched evaluation data. Regenerate with `npm run eval:fetch`.
 # Not vendored: the errata corpus is published material, and the benchmark RFCs
-# are fetched from rfc-editor.org.
+# are fetched from rfc-editor.org, and eval/data/specs holds Raft's paper text.
 eval/data/
+
 
 # Generated reports: `idea-re analyze <src> --out <name>.html`
 *.html

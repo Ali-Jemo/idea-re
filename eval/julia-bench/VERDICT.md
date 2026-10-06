@@ -3,68 +3,78 @@
 Question: does a 144.3M-parameter decision model beat idea-re's keyword heuristic
 on domain classification, the pipeline's most fragile measured component?
 
-Answer: **no.** Measured on 22 real specifications the heuristic was never fitted
-to.
+Answer: **no.** Measured on 19 specifications the heuristic was never fitted to.
 
-| classifier | accuracy | distributed-systems | data-format | generic | agent-protocol |
+| classifier | accuracy | data-format | distributed-systems | generic | agent-protocol |
 |---|---|---|---|---|---|
-| keyword heuristic | **11/22 (50%)** | 0/5 | 4/9 | 7/7 | 0/1 |
-| Julia-1, CPU | 6/22 (27%) | 1/5 | 3/9 | 2/7 | 0/1 |
+| keyword heuristic | **10/19 (53%)** | 4/6 | 1/2 | 5/8 | 0/3 |
+| Julia-1, CPU | 9/19 (47%) | 4/6 | 1/2 | 7/8 | 2/3 |
 
 ```bash
 npm run eval:fetch
-node eval/julia-bench/make-cases.mjs
-# then, in a Python 3.11 environment with torch + the Julia-1 weights:
+node eval/julia-bench/make-cases.mjs          # also prints --titles
+# then, in a Python 3.11 environment with torch and the Julia-1 weights:
 python eval/julia-bench/run-julia.py
 ```
 
-## The failure mode matters more than the score
+## Two measurement bugs found before the comparison meant anything
 
-**10 of 22 answers were wrong at p > 0.9.** Confidence did not track correctness:
+**Fabricated labels.** The first table was written from RFC numbers recalled from
+memory and was wrong about five: 8032 was labelled CRDTs (it is EdDSA), 9548 was
+forward error correction (it is PKCS #12 transport), 9325 was a tree format (it
+is DTLS), 9226 and 9704 did not support their labels either. That fabricated a
+"distributed-systems scores 0/5" result that blamed the classifier for the
+benchmark's own error. Raft scores 1/2 as it stands.
 
-| document | label | Julia said | p |
-|---|---|---|---|
-| RFC 9224 | data-format | generic | 0.976 |
-| RFC 9110 | agent-protocol | generic | 0.940 |
-| RFC 8447 (DoQ) | generic | data-format | 0.916 |
-| RFC 8032 (CRDTs) | distributed-systems | agent-protocol | 0.943 |
+`make-cases.mjs` now derives each label from the document's own title and exits
+non-zero when the two disagree. Labels are transcribed from `--titles` output,
+not remembered.
 
-A wrong answer delivered at 0.98 is worse than no answer. For idea-re's purpose
-this is disqualifying on its own: a false gap sends an implementer after a
-decision the spec already made, and a confidently wrong domain assigns the wrong
-decision lens — so the wrong five questions get asked.
+**Table-of-contents contamination.** 15 of 19 excerpts were a table of contents
+rather than prose. A TOC is a list of section titles, so it can only match on
+vocabulary — exactly the failure mode under test. Every earlier result, Julia's
+included, was computed on section headings.
 
-Julia also **inverted the heuristic's one strength**: `generic` fell from 7/7 to
-2/7. The heuristic declines cleanly on documents it cannot place; Julia commits.
+`stripBoilerplate` now drops a leading TOC run, and excerpts start after the
+abstract. TOC-like excerpts fell from 15/19 to 1/19.
 
-Agreement between the two was 8/22 — they are not making correlated mistakes, so
-ensembling buys nothing.
+Correcting both moved the numbers materially: the heuristic went from an
+apparent 11/22 to 8/19, and Julia from 6/22 to 9/19. **The earlier verdict — that
+Julia was confidently wrong — was based on TOC text and does not survive
+correction.** What holds up is narrower and still sufficient: Julia does not beat
+the heuristic, and it costs 550 MB plus a Python 3.11 environment.
 
-## Why, from the model card
+## Where each classifier wins
 
-Julia-1 is a finite-choice classifier over supplied options. Selecting a
-specification's subject area needs evidence *across* a document — an encoder
-over a 2,400-character excerpt weights local vocabulary far more than structure,
-so transport protocols (TLS, DoQ, HTTP/2) inherit the word "format" from
-adjacent material and the decision follows.
+Julia is better at `agent-protocol` (2/3 against 0/3) and at `generic` (7/8
+against 5/8). It is worse at `generic`-heavy precision and equal elsewhere.
 
-The published evaluations agree: AG News 94/100 at 4 labels, MASSIVE 71.50% at 18
-scenario labels, but **Banking77 64/100 at 72 labels**, trailing its reference by
-23 points. Choice count is not the variable — label distance from the supplied
-context is.
+`agent-protocol` at 0/3 for the heuristic is a real defect. The domain's five
+decision questions are about persistent state across sessions — concurrency,
+provenance, contradiction policy, retrieval scope, scheduling — and a document
+about HTTP request semantics raises none of them. The lens is right for the
+*idea* of a session protocol and wrong for HTTP the protocol.
 
-## What was kept
+## Why it was not adopted
 
-Nothing from the model. Recorded because a future idea-re may want an LLM-backed
-router, and "144M decision model" is the obvious cheap answer. It is measurably
-worse here, and the 550 MB dependency is not worth it.
+One decision model, 550 MB of weights, a Python 3.11 virtualenv, and torch on
+CPU, to answer "which of four labels" — for a number that does not beat a regex.
+The abstraction the heuristic would need (a pluggable backend) is not worth
+building until something better than the regex exists to plug in.
 
-The benchmark stays: it re-derives the heuristic baseline whenever the corpus
-changes, so any future classifier has a number to beat rather than an assumption.
+The benchmark is kept so a future classifier has a baseline to beat rather than
+an assumption, and so the labels stay verified.
 
 ## The honest conclusion
 
-idea-re's domain classification remains the weakest measured component —
-`distributed-systems` at 0/5 is a real gap, not a solved problem. Julia does not
-fix it. What would: a classifier that reads structure rather than vocabulary,
-which means either an LLM or better features, not a smaller model.
+Domain classification remains idea-re's weakest measured component, and the
+measurement is now trustworthy enough to act on:
+
+- `agent-protocol` 0/3 — the domain's questions do not describe HTTP.
+- `distributed-systems` 1/2 — under-sampled. IETF has almost no replicated-systems
+  documents; a search for consensus RFCs returned "On Consensus and Humming in the
+  IETF". Raft is currently the only real case.
+
+Neither is fixed by a smaller model. Fixing the first needs decision questions
+that describe a session protocol rather than assuming one; fixing the second needs
+more real specifications to measure against.

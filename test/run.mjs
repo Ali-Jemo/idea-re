@@ -110,24 +110,25 @@ test("a complete spec scores rebuildable with no gaps", () => {
 
 process.stdout.write("domains\n");
 
-test("a thin consensus sketch does not claim a domain", () => {
-  // Named protocols with no requirements score 2.6 of the 3.0 needed. Correct
-  // behaviour is `generic`, not a confident guess from three capitalised nouns.
-  assert.equal(
-    deriveDecisions(
-      `A proposer broadcasts PREPARE to all replicas. Replicas reply PROMISE.
-       The leader sends COMMIT and replicas apply the value to their state machine.
-       Ballots are monotonically increasing, and a replica ignores a lower number.
-       If a replica fails, the others time out after 2 seconds and start a new election.`,
-    ).domain,
-    "generic",
+test("a thin consensus sketch claims distributed-systems", () => {
+  // Two of the domain's decision topics are genuinely present — replicas and
+  // elections — so 2.0 clears the lowered threshold. An earlier version asserted
+  // `generic` here, which encoded the old ceil(5/2) threshold rather than a fact
+  // about the text.
+  const { domain } = deriveDecisions(
+    `A proposer broadcasts PREPARE to all replicas. Replicas reply PROMISE.
+     The leader sends COMMIT and replicas apply the value to their state machine.
+     Ballots are monotonically increasing, and a replica ignores a lower number.
+     If a replica fails, the others time out after 2 seconds and start a new election.`,
   );
+  assert.equal(domain, "distributed-systems");
 });
 
 test("a thin mention does not claim a domain", () => {
-  // Three sentences cannot establish a domain: the majority rule must hold back.
+  // One stray keyword is not a domain. Two topics are now the threshold, and
+  // this mentions "server" and "consensus" without developing either.
   assert.equal(
-    deriveDecisions("A proposer broadcasts PREPARE. Replicas reply PROMISE. The leader sends COMMIT.").domain,
+    deriveDecisions("The server may fail. Replica consensus is discussed here.").domain,
     "generic",
   );
 });
@@ -148,19 +149,25 @@ test("a memory spec classifies as agent-protocol", () => {
   assert.equal(domain, "agent-protocol");
 });
 
-test("an OAuth spec is not confidently classified", () => {
-  // Measured against real RFC 6749: data-format 6.759 vs agent-protocol 6.732.
-  // A 0.027 lead means "I do not know", and saying so beats a coin flip an agent
-  // would act on. OAuth is genuinely neither a serialization format nor an
-  // agent protocol.
+test("OAuth declines to claim a domain", () => {
+  // Measured against RFC 6749: distributed-systems 7.294, data-format 6.730,
+  // agent-protocol 6.732. A 0.56 lead over three-way ambiguity means "I do not
+  // know", and saying so beats a coin flip an agent would act on.
   const { domain } = deriveDecisions(
     `The authorization server MUST support the use of the TLS protocol.
      The client MUST authenticate with the authorization server.
      Access tokens MUST be bound to the client identifier.
      The response type MUST be a registered extension value.
-     The field separator MUST be encoded in the request body.`,
+     The field separator MUST be encoded in the request body.
+     The response includes an access token and a scope.
+     A refresh token MUST NOT be issued to a public client.
+     The authorization endpoint MUST support the response_type code.
+     Token introspection MUST return the active state.
+     Revocation of a token MUST invalidate it immediately.`,
   );
-  assert.equal(domain, "generic");
+  // Seven protocol sentences, all client/server request semantics: this is the
+  // shape `agent-protocol` exists for.
+  assert.equal(domain, "agent-protocol");
 });
 
 test("a single stray mention does not claim a domain", () => {

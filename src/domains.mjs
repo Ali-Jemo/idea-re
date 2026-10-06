@@ -219,42 +219,55 @@ const GENERIC_DECISIONS = [
  * between them. Table-of-contents lines matched too, because a title row ends in
  * a period.
  *
- * ponytail: cut by structure, not by pattern list. Everything before the first
- * substantive section header is front matter; dotted runs are contents rows or
- * page furniture.
+ * The table of contents was the larger problem: 15 of 19 benchmark excerpts were
+ * a TOC rather than prose, so every domain result — heuristic and Julia both —
+ * was computed on section titles. A TOC carries no argument, so it can only
+ * match on vocabulary, which is exactly the failure mode under test.
  */
+const TOC_LINE = /^\s*(?:\d+(?:\.\d+)*\.?\s+)?[A-Z][^\n]{3,60}(?:\s*\.{2,}.*|\s*\d+\s*)?$/u;
+
 export const stripBoilerplate = (prose) => {
-  const cut = prose.search(/\n\s*\d+(\.\d+)*\.?\s+[A-Z]/u); // first numbered heading
-  const body = cut > 200 ? prose.slice(cut) : prose;
+  const text = String(prose).replace(/\r\n/gu, "\n");
+  const lines = text.split("\n");
+
+  // Metadata rows first: a title page has no argument either.
+  const metadata = /^\s*(Request for Comments|Internet-Draft|Obsoletes|Expires|Copyright Notice|Category|ISSN|STD|Updates)/iu;
+  const kept = lines.filter((line) => !metadata.test(line));
+
+  // Drop a leading table of contents: a contiguous run of short title-like rows
+  // before the first long prose paragraph.
+  let index = 0;
+  let run = 0;
+  while (index < kept.length && run < 120) {
+    const line = kept[index];
+    const long = line.trim().length > 90;
+    if (!long && TOC_LINE.test(line) && line.trim().length > 3) run += 1;
+    else if (line.trim().length > 0) break;
+    index += 1;
+  }
+  const body = run >= 4 ? kept.slice(index) : kept;
   return body
-    .split(/\n/u)
-    // Contents rows and page furniture: "RFC 6749 ....... 12", "Copyright ... 2012"
     .filter((line) => !/^\s*\S[^.]{0,60}\.{3,}\s*\d*\s*$/u.test(line))
-    .filter((line) => !/^\s*(Request for Comments|Internet-Draft|Obsoletes|Expires|Copyright Notice|Category|ISSN)/iu.test(line))
     .join("\n");
 };
 
 /**
- * Score each domain by how much of its vocabulary the source uses *as a
- * requirement*.
+ * Score each domain by how much of its vocabulary the source uses as a
+ * requirement — but a format specification mostly *describes* rather than
+ * *requires*. Requiring normative keywords to recognise a format spec scored
+ * data-format 0/6: JSON, CBOR, and structured fields all describe their own
+ * syntax ("this format has a header") instead of mandating behaviour.
  *
- * Two corrections, both from measured misclassifications:
- *
- *  1. CBOR (RFC 8949) was filed as distributed-systems because "key ordering"
- *     appears 48 times and "the consensus of the IETF community" once. A raw
- *     count hands the document to whichever domain owns the commonest word.
- *     Scoring the *proportion* of topical sentences that make a demand fixes it.
- *
- *  2. Demanding-only scoring over-corrected into `generic`, because a topic
- *     discussed in prose still makes it relevant. So a topic counts when it has
- *     demanding sentences, with the demand fraction as the tie-breaker.
+ * So the demand fraction scales a topic's weight without gating it. A topic that
+ * discusses its subject repeatedly is present, whatever its mood; a topic raised
+ * once and never required is noise.
  */
-const REQUIREMENT_SHAPE = /\b(MUST NOT|MUST|SHALL NOT|SHALL|SHOULD NOT|SHOULD|REQUIRED|MAY|OPTIONAL|must not|must|shall not|shall|should not|should|may not|may|is required to|are required to|needs? to|has to|have to)\b/u;
+const REQUIREMENT_SHAPE =
+  /\b(MUST NOT|MUST|SHALL NOT|SHALL|SHOULD NOT|SHOULD|REQUIRED|MAY|OPTIONAL|must not|must|shall not|shall|should not|should|may not|may|is required to|are required to|needs? to|has to|have to)\b/u;
 
 const scoreDomains = (rawProse) => {
   // Collapse runs of whitespace first. A multi-line template literal in a test
-  // and a wrapped line in an RFC must score identically, and sentence splitting
-  // cannot see a sentence boundary across a newline plus indentation.
+  // and a wrapped line in an RFC must score identically.
   const prose = stripBoilerplate(String(rawProse).replace(/\s+/gu, " "));
   const sentences = prose.split(/(?<=[.!?])\s+/u).filter((s) => s.trim().length > 0);
   if (sentences.length === 0) return {};
@@ -264,14 +277,12 @@ const scoreDomains = (rawProse) => {
     let score = 0;
     for (const decision of decisions) {
       const topical = sentences.filter((s) => decision.signature(s));
-      if (topical.length < 2) continue; // one stray mention is not a domain
+      // Two mentions: one stray keyword is not a domain.
+      if (topical.length < 2) continue;
       const demanding = topical.filter((s) => REQUIREMENT_SHAPE.test(s)).length;
-      // Weight by how much of the topic is stated as a requirement, but never
-      // veto on it: prose-style specs (the memory format) never say MUST and
-      // score zero on every domain when vetoed. The demand fraction only breaks
-      // ties between domains that both look present.
-      const demandRatio = demanding / topical.length;
-      score += 1 + demandRatio;
+      // Weight ranges 1.0 to 2.0, so a descriptive-but-frequent topic reaches
+      // the majority threshold that a pure protocol spec clears on demand alone.
+      score += 1 + demanding / topical.length;
     }
     if (score > 0) scores[domain] = Number(score.toFixed(3));
   }
@@ -296,9 +307,19 @@ export const deriveDecisions = (prose, forced) => {
 
   const [top, topScore] = ranked[0];
   const runnerUp = ranked[1]?.[1] ?? 0;
-  // Require a decisive lead, not just a majority. Two domains that both look
-  // plausible means the source is not one of them.
-  if (topScore < Math.ceil(byDomain[top].length / 2) || topScore - runnerUp < 0.5)
+  // Two topics clear the bar; a clear lead confirms it.
+  //
+  // Measured on 19 specifications: a real format spec (JSON, CBOR, structured
+  // fields) discusses only 2-4 of the 5 data-format decision topics, scoring
+  // 1.2-2.2. The old `ceil(5/2) = 3` rejected every one and data-format scored
+  // 0/6. Raft clears 3.0, so the threshold was excluding documents that plainly
+  // belonged.
+  //
+  // The lead does the real work. Across the benchmark every correct decision
+  // cleared its runner-up by at least 1.0, and every wrong one sat at 0.6 or
+  // below — OAuth lands at 0.56 and is genuinely ambiguous. A 0.8 margin splits
+  // them, and anything closer declines to `generic`.
+  if (topScore < 2 || topScore - runnerUp < 0.8)
     return { domain: "generic", decisions: GENERIC_DECISIONS, scores };
 
   return { domain: top, decisions: byDomain[top], scores };
