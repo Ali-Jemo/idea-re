@@ -1,0 +1,11 @@
+# Fetched evaluation data. Regenerate with `npm run eval:fetch`.
+# Not vendored: the errata corpus is published material, and the benchmark RFCs
+# are fetched from rfc-editor.org.
+eval/data/
+
+# Generated reports: `idea-re analyze <src> --out <name>.html`
+*.html
+
+node_modules/
+npm-debug.log*
+.DS_Store

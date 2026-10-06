@@ -1,0 +1,25 @@
+{
+  "name": "idea-re",
+  "version": "0.1.0",
+  "description": "Evidence-backed reverse engineering of ideas, mechanisms, and specifications",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "idea-re": "src/cli.mjs"
+  },
+  "main": "src/server.mjs",
+  "files": ["src"],
+  "scripts": {
+    "test": "node test/run.mjs",
+    "eval:fetch": "node eval/paths.mjs",
+    "eval:corpus": "node eval/parse-corpus.mjs && node eval/measure.mjs",
+    "eval:corpus:errors": "node eval/parse-corpus.mjs && node eval/measure.mjs --errors",
+    "eval:detect": "node eval/parse-detected.mjs && node eval/detect.mjs",
+    "eval:precision": "node eval/make-negatives.mjs && node eval/precision.mjs",
+    "eval:all": "npm run eval:fetch && npm run eval:corpus && npm run eval:detect && npm run eval:precision"
+  },
+  "keywords": ["reverse-engineering", "specification", "mcp", "evidence"],
+  "engines": {
+    "node": "^22.19.0 || >=24.11.0"
+  }
+}
