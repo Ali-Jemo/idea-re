@@ -14,9 +14,16 @@
  * detector that reports a settled decision as open is worse than one that misses.
  */
 
-/** Commits to a numeric limit, in digits or words: "10,000", "at most 500". */
+/**
+ * Commits to a numeric limit, in digits or words: "10,000", "at most 500".
+ *
+ * Also catches a budget stated in units — "15 words across 33 s", "≤ 5 words",
+ * "at most 3 lines". A copy budget is a size limit written as prose, and without
+ * this the question "what is the size limit?" was never even asked of documents
+ * that answer it plainly.
+ */
 const numericLimit =
-  /(at most|under|maximum|max|no more than|up to|limit(?:ed)? to|cap(?:ped)? (?:at|to)|bounded (?:at|to)|window of|queue of|holds? at)\s+[\d,]+|\b(ten|hundred|thousand|ten thousand|[a-z]+teen)\b(?=[^.]*\b(message|entry|entries|byte|bytes|line|lines|token|tokens|request|requests)\b)/i;
+  /(at most|under|maximum|max|no more than|up to|limit(?:ed)? to|cap(?:ped)? (?:at|to)|bounded (?:at|to)|window of|queue of|holds? at)\s+[\d,]+|\b(ten|hundred|thousand|ten thousand|[a-z]+teen)\b(?=[^.]*\b(message|entry|entries|byte|bytes|line|lines|token|tokens|request|requests)\b)|[\d,.]+\s*(words?|characters?|lines?|sentences?|shots?|frames?|seconds?|s\b|px|pt|lufs)\b|\b(zero|one|two|three|four|five|six|seven|eight|nine|ten)\s+(words?|characters?|lines?|sentences?|shots?|frames?|seconds?)\b/i;
 
 /** Commits to an action with an outcome: "rejects the second push". */
 const commitsAction = /\b(when|if|upon|once)\b[^.]{0,80}\b(rejects?|fails?|discards?|drops?|ignores?|returns?|drops|marks?|applies?|excludes?)\b/i;
@@ -187,8 +194,12 @@ const GENERIC_DECISIONS = [
   {
     id: "contradiction-handling",
     decision: "When two statements disagree, which wins and on what basis?",
-    signature: (s) => /contradict|outdated|conflicting|merge duplicates|stale/i.test(s),
-    answeredWhen: (s) => /\b(wins?|newer|oldest|precedence|supersede|last[- ]write)\b/i.test(s),
+    // `conflict` bare, not just its participles. cinetic states the rule as
+    // "Brand guidelines that conflict with a rule here: follow the guidelines",
+    // and the signature missed the sentence that answers the question.
+    signature: (s) => /contradict|conflict|conflicting|outdated|merge duplicates|stale|disagree|overrid/i.test(s),
+    answeredWhen: (s) =>
+      /\b(wins?|follow the (?:guidelines|brand|supplied)|takes precedence|precedence|supersede|last[- ]write|newer (?:entry|wins)|overrides?)\b/i.test(s),
   },
   {
     id: "scheduling-trigger",
@@ -197,10 +208,15 @@ const GENERIC_DECISIONS = [
     answeredWhen: (s) => /\b(periodically|every \w+|on \w+ day|at the start|trigger|runs? on)\b/i.test(s),
   },
   {
-    id: "size-budget",
+id: "size-budget",
     decision: "What is the size limit of a stored unit, and what happens when it is exceeded?",
-    signature: (s) => /keep it short|entry point|MEMORY\.md|manifest|index/i.test(s),
-    answeredWhen: (s) => numericLimit.test(s) || /\b(must not exceed|compacted|too large)\b/i.test(s),
+    // The topic word is "budget", not "limit". cinetic sets a copy budget
+    // ("Tessel's statements total 15 words across 33 s", "It has ≤ 5 words",
+    // a per-format word table) and none of that raised this question, so the
+    // gap was reported as unstated when the document states it explicitly.
+    signature: (s) =>
+      /keep it short|entry point|MEMORY\.md|manifest|root|limit|maximum|budget|per (?:line|shot|film|frame)|word count|words? in the film|characters? per|sentence count|entry limit|\b(?:words?|characters?|lines?|sentences?|shots?|frames?)\b(?=\s+(?:in|across|per|for|on)\b|\s*\d)/i.test(s),
+    answeredWhen: (s) => numericLimit.test(s) || /\b(must not exceed|compacted|rejects? writes|at most|at least|or under|no more than)\b/i.test(s),
   },
   {
     id: "identity-provenance",
@@ -297,9 +313,14 @@ const scoreDomains = (rawProse) => {
  */
 export const deriveDecisions = (prose, forced) => {
   if (forced !== undefined) {
+    // `generic` is a real outcome of classification, so it must be a real
+    // override target. It was returned here but absent from byDomain, so
+    // `--domain generic` threw and DOMAINS omitted it.
+    if (forced === "generic") return { domain: "generic", decisions: GENERIC_DECISIONS, scores: {} };
     const decisions = byDomain[forced];
-    if (decisions === undefined) throw new Error(`Unknown domain: ${forced}. Known: ${Object.keys(byDomain).join(", ")}`);
-    return { domain: forced, decisions };
+    if (decisions === undefined)
+      throw new Error(`Unknown domain: ${forced}. Known: ${[...Object.keys(byDomain), "generic"].join(", ")}`);
+    return { domain: forced, decisions, scores: {} };
   }
   const scores = scoreDomains(prose);
   const ranked = Object.entries(scores).sort((a, b) => b[1] - a[1]);
@@ -325,4 +346,5 @@ export const deriveDecisions = (prose, forced) => {
   return { domain: top, decisions: byDomain[top], scores };
 };
 
-export const DOMAINS = Object.keys(byDomain);
+/** Every selectable lens, including the fallback that classification can return. */
+export const DOMAINS = [...Object.keys(byDomain), "generic"];
