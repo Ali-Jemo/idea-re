@@ -31,6 +31,17 @@ export const BENCHMARK_RFCS = [
 ];
 
 /**
+ * A wider set for domain classification: IANA protocol registries across
+ * serialization formats, web transports, and replicated systems, so a
+ * decision model's accuracy is measured on documents idea-re has never been
+ * fitted to.
+ */
+export const CLASSIFICATION_RFCS = [
+  8258, 8259, 8446, 8447, 8852, 8941, 8949, 9110, 9111, 9224, 9226, 9325, 9460,
+  9461, 9527, 9548, 9704, 3339, 6269, 6749, 7234, 8032,
+];
+
+/**
  * Fetch every corpus the evaluations need.
  *
  * Documents come from rfc-editor.org, which serves the same text the RFC Editor
@@ -59,7 +70,7 @@ export const fetchAll = async ({ timeoutMs = 30000 } = {}) => {
     });
   }
 
-  for (const number of BENCHMARK_RFCS) {
+  for (const number of [...new Set([...BENCHMARK_RFCS, ...CLASSIFICATION_RFCS])]) {
     const target = join(RFCS, `rfc${number}.txt`);
     if (existsSync(target)) continue;
     const url = `https://www.rfc-editor.org/rfc/rfc${number}.txt`;

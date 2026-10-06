@@ -6,6 +6,9 @@ eval/data/
 # Generated reports: `idea-re analyze <src> --out <name>.html`
 *.html
 
+# Julia-1 weights: ~585 MB, fetched by the benchmark. Apache 2.0.
+Julia-1/
+
 node_modules/
 npm-debug.log*
 .DS_Store
