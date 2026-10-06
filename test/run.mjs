@@ -462,35 +462,34 @@ test("headings are never extracted as claims", () => {
 
 process.stdout.write("precision (negative controls)\n");
 
-// Fixtures come from eval/make-negatives.mjs so the tests and the benchmark
-// cannot drift apart. They pin the three bugs the false-positive measurement
-// exposed: literal answer patterns, hard-wrapped sentences, and heading periods
-// splitting a topic from its answer.
-const { readFileSync, existsSync } = await import("node:fs");
+// The controls are generated, not committed: they live under eval/data/ with
+// the fetched corpora. Generate them here so `npm test` works on a fresh clone
+// without a network round-trip, and so the tests and the benchmark cannot drift
+// apart. They pin the three bugs the false-positive measurement exposed: literal
+// answer patterns, hard-wrapped sentences, and heading periods splitting a
+// topic from its answer.
+const { readFileSync } = await import("node:fs");
 const { join, dirname } = await import("node:path");
 const { fileURLToPath } = await import("node:url");
-const NEG = join(dirname(fileURLToPath(import.meta.url)), "..", "eval", "data", "corpora", "negatives", "manifest.json");
 
-if (!existsSync(NEG)) {
-  test("negative controls are generated", () => {
-    assert.fail(`missing ${NEG} — run: npm run eval:precision`);
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+await import(join(root, "eval", "make-negatives.mjs"));
+
+const NEG = join(root, "eval", "data", "corpora", "negatives", "manifest.json");
+const controls = JSON.parse(readFileSync(NEG, "utf8"));
+for (const control of controls) {
+  test(`${control.name}: ${control.kind} control`, () => {
+    const text = readFileSync(control.file, "utf8");
+    const { decisions } = deriveDecisions(text, control.domain);
+    const gaps = findGaps(text, [], decisions).map((g) => g.gap_id.replace(/^gap_/u, ""));
+    if (control.kind === "complete") {
+      assert.deepEqual(gaps, [], "a document that settles every decision must report none");
+      return;
+    }
+    for (const expected of control.expect_gaps)
+      assert.ok(gaps.includes(expected), `expected ${expected}, got ${gaps.join(", ") || "none"}`);
+    assert.deepEqual(gaps.filter((g) => !control.expect_gaps.includes(g)), [], "no false positives");
   });
-} else {
-  const controls = JSON.parse(readFileSync(NEG, "utf8"));
-  for (const control of controls) {
-    test(`${control.name}: ${control.kind} control`, () => {
-      const text = readFileSync(control.file, "utf8");
-      const { decisions } = deriveDecisions(text, control.domain);
-      const gaps = findGaps(text, [], decisions).map((g) => g.gap_id.replace(/^gap_/u, ""));
-      if (control.kind === "complete") {
-        assert.deepEqual(gaps, [], "a document that settles every decision must report none");
-        return;
-      }
-      for (const expected of control.expect_gaps)
-        assert.ok(gaps.includes(expected), `expected ${expected}, got ${gaps.join(", ") || "none"}`);
-      assert.deepEqual(gaps.filter((g) => !control.expect_gaps.includes(g)), [], "no false positives");
-    });
-  }
 }
 
 process.stdout.write("report\n");
